@@ -1,0 +1,2 @@
+# Samarth
+Smart Resource Allocator
