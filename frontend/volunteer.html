@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Volunteer Dashboard — Samarth</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+  <div class="page-container">
+    <div class="page-header">
+      <h1 class="page-title" id="welcome-title">Welcome back</h1>
+      <p class="page-subtitle">View assigned tasks, update progress, and make an impact</p>
+    </div>
+    <div class="grid-2" style="margin-bottom:32px;" id="top-section">
+      <div class="profile-card" id="profile-card"></div>
+      <div><div class="stats-grid" id="vol-stats" style="margin-bottom:0"></div></div>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchVolTab('assigned')">📋 Assigned Tasks</button>
+      <button class="tab-btn" onclick="switchVolTab('completed')">✅ Completed</button>
+    </div>
+    <div class="tab-content active" id="tab-assigned">
+      <div id="assigned-list"><div class="spinner"></div></div>
+    </div>
+    <div class="tab-content" id="tab-completed">
+      <div id="completed-list"><div class="spinner"></div></div>
+    </div>
+  </div>
+  <div class="offline-banner" id="offline-banner">📡 Offline Mode Active — Showing cached data</div>
+  <script src="/js/api.js"></script>
+  <script>
+    if(!requireAuth('volunteer')){}
+    const user=getUser();
+    document.getElementById('navbar').innerHTML=buildNavbar('volunteer');
+    document.getElementById('welcome-title').textContent='Welcome, '+user.name;
+    let allRequests=[];
+
+    function switchVolTab(t){
+      document.querySelectorAll('.tab-btn').forEach((b,i)=>b.classList.toggle('active',(t==='assigned'?0:1)===i));
+      document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+      document.getElementById('tab-'+t).classList.add('active');
+    }
+    async function loadTasks(){
+      try{
+        const data=await getRequests();allRequests=data.requests;
+        const active=allRequests.filter(r=>r.status!=='completed');
+        const completed=allRequests.filter(r=>r.status==='completed');
+        const helped=allRequests.reduce((s,r)=>s+(r.status==='completed'?r.peopleAffected:0),0);
+
+        // Profile card
+        const skillsHtml=(user.skills||[]).map(s=>`<span class="badge" style="background:var(--green-pale);color:var(--green);margin:2px;">${getNeedIcon(s)} ${s}</span>`).join('');
+        document.getElementById('profile-card').innerHTML=`
+          <div class="profile-avatar">${user.name.charAt(0)}</div>
+          <div class="profile-name">${user.name}</div>
+          <div class="profile-role">Volunteer</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-bottom:12px;color:var(--orange);font-weight:700;font-size:1.1rem">⭐ ${user.rating?.toFixed(1)||'0.0'}</div>
+          <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:4px;margin-bottom:16px">${skillsHtml||'<span style="color:var(--text-muted);font-size:.85rem">No skills added</span>'}</div>
+          <div style="display:flex;justify-content:center;gap:20px;font-size:.85rem;color:var(--text-sec)">
+            <span><strong>${completed.length}</strong> completed</span>
+            <span><strong>${active.length}</strong> active</span>
+            <span><strong>${helped}</strong> helped</span>
+          </div>`;
+
+        // Stats
+        document.getElementById('vol-stats').innerHTML=`
+          <div class="stat-card accent-blue"><div class="stat-icon blue">📋</div><div class="stat-value">${active.length}</div><div class="stat-label">Active Tasks</div></div>
+          <div class="stat-card accent-green"><div class="stat-icon green">✅</div><div class="stat-value">${completed.length}</div><div class="stat-label">Completed</div></div>
+          <div class="stat-card accent-orange"><div class="stat-icon orange">⭐</div><div class="stat-value">${user.rating?.toFixed(1)||'0.0'}</div><div class="stat-label">Rating</div></div>
+          <div class="stat-card accent-orange"><div class="stat-icon orange">👥</div><div class="stat-value">${helped}</div><div class="stat-label">People Helped</div></div>`;
+
+        document.getElementById('assigned-list').innerHTML=!active.length
+          ?'<div class="empty-state"><div class="empty-icon">🎉</div><p>No active tasks. Check back soon!</p></div>'
+          :active.map(r=>renderVolCard(r)).join('');
+        document.getElementById('completed-list').innerHTML=!completed.length
+          ?'<div class="empty-state"><div class="empty-icon">📭</div><p>No completed tasks yet.</p></div>'
+          :completed.map(r=>renderVolCard(r)).join('');
+      }catch(err){showToast(err.message,'error');}
+    }
+    function renderVolCard(r){
+      const p=getStatusProgress(r.status),client=r.clientId,
+        si=['pending','assigned','in-progress','completed'],icons=['📝','👤','🔄','✅'],labels=['Requested','Assigned','In Progress','Completed'],ci=si.indexOf(r.status);
+      const steps=si.map((s,i)=>`<div class="step-item ${i<ci?'done':''} ${i===ci?'active':''}"><div class="step-circle">${icons[i]}</div><div class="step-label">${labels[i]}</div></div>`).join('');
+      return `<div class="request-card urgency-${r.urgency}">
+        <div class="request-header">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="request-type">${getNeedIcon(r.needType)} ${r.needType}</span>
+            <span class="badge ${getUrgencyClass(r.urgency)}">${r.urgency}</span>
+          </div>
+          <span class="badge-status ${getStatusClass(r.status)}">${r.status}</span>
+        </div>
+        <p class="request-desc">${r.description}</p>
+        <div class="request-meta">
+          <span>📍 ${r.location}</span><span>👥 ${r.peopleAffected} people</span>
+          <span>👤 ${client?.name||'Unknown'}</span><span>📅 ${formatDate(r.createdAt)}</span>
+        </div>
+        <div class="step-tracker">${steps}</div>
+        <div class="request-actions" style="margin-top:12px">
+          ${r.status==='assigned'?`<button class="btn btn-success btn-sm" onclick="handleStatus('${r._id}','in-progress')">▶️ Start Work</button><button class="btn btn-danger btn-sm" onclick="handleReject('${r._id}')">✖ Reject</button>`:''}
+          ${r.status==='in-progress'?`<button class="btn btn-success btn-sm" onclick="handleStatus('${r._id}','completed')">✅ Complete</button>`:''}
+          ${r.rating?`<span class="rating-display">⭐ ${r.rating}/5</span>`:''}
+        </div>
+      </div>`;
+    }
+    async function handleStatus(id,st){try{await updateStatus(id,st);showToast('Status updated to "'+st+'"!','success');loadTasks();}catch(e){showToast(e.message,'error');}}
+    async function handleReject(id){if(!confirm('Reject this task?'))return;try{await rejectTask(id);showToast('Task rejected.','info');loadTasks();}catch(e){showToast(e.message,'error');}}
+    loadTasks();
+  </script>
+</body>
+</html>

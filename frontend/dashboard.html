@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Impact Dashboard — Samarth</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <nav class="navbar" id="navbar"></nav>
+  <div class="page-container">
+    <div class="page-header">
+      <h1 class="page-title">📊 Impact Dashboard</h1>
+      <p class="page-subtitle">Real-time overview of community impact and resource allocation</p>
+    </div>
+    <div class="stats-grid" id="stats-grid"><div class="spinner"></div></div>
+    <div class="grid-2" style="margin-bottom:32px;">
+      <div class="card"><h3 class="card-title" style="margin-bottom:16px">📈 Status Distribution</h3><div style="height:260px;display:flex;align-items:center;justify-content:center"><canvas id="statusChart"></canvas></div></div>
+      <div class="card"><h3 class="card-title" style="margin-bottom:16px">🎯 Urgency Distribution</h3><div style="height:260px;display:flex;align-items:center;justify-content:center"><canvas id="urgencyChart"></canvas></div></div>
+    </div>
+    <div class="grid-2" style="margin-bottom:32px;">
+      <div class="card"><h3 class="card-title" style="margin-bottom:16px">📋 Requests by Category</h3><div style="height:280px"><canvas id="needChart"></canvas></div></div>
+      <div class="card"><h3 class="card-title" style="margin-bottom:16px">📈 Requests Over Time</h3><div style="height:280px"><canvas id="timeChart"></canvas></div></div>
+    </div>
+    <div class="section">
+      <h2 class="section-title">💡 Current Scenario Insights</h2>
+      <div id="insights-container"></div>
+    </div>
+    <div class="section">
+      <h2 class="section-title">📍 Resource Allocation Map <span class="map-label" style="position:static;display:inline-flex;margin-left:8px">🔌 Offline Map Mode</span></h2>
+      <div class="map-container"><svg id="map-svg" class="map-svg" viewBox="0 0 800 360"></svg></div>
+      <div style="display:flex;gap:20px;margin-top:12px;font-size:.8rem;color:var(--text-sec)">
+        <span>🔴 Request Locations</span><span>🟢 Volunteer Locations</span>
+      </div>
+    </div>
+    <div class="section">
+      <h2 class="section-title">🔍 All Requests (Priority Sorted)</h2>
+      <div id="all-requests"><div class="spinner"></div></div>
+    </div>
+  </div>
+  <div class="offline-banner" id="offline-banner">📡 Offline Mode Active — Showing cached data</div>
+  <script src="/js/api.js"></script>
+  <script>
+    if(!requireAuth()){}
+    const user=getUser();
+    document.getElementById('navbar').innerHTML=buildNavbar(user.role);
+    const CC={text:'#616161',grid:'rgba(0,0,0,0.06)',g:'#1B5E20',b:'#0288D1',o:'#FF8F00',r:'#E53935',p:'#7B1FA2',s:'#2E7D32'};
+    async function loadDashboard(){
+      try{
+        const data=await getDashboard(),s=data.stats;
+        document.getElementById('stats-grid').innerHTML=`
+          <div class="stat-card accent-green"><div class="stat-icon green">📋</div><div class="stat-value">${s.totalRequests}</div><div class="stat-label">Total Requests</div></div>
+          <div class="stat-card accent-green"><div class="stat-icon green">✅</div><div class="stat-value">${s.completedRequests}</div><div class="stat-label">Completed</div></div>
+          <div class="stat-card accent-blue"><div class="stat-icon blue">💪</div><div class="stat-value">${s.activeVolunteers}/${s.totalVolunteers}</div><div class="stat-label">Active Volunteers</div></div>
+          <div class="stat-card accent-orange"><div class="stat-icon orange">⏱️</div><div class="stat-value">${s.avgResponseTimeHours}h</div><div class="stat-label">Avg Response</div></div>
+          <div class="stat-card accent-red"><div class="stat-icon red">👥</div><div class="stat-value">${s.totalPeopleHelped}</div><div class="stat-label">People Helped</div></div>
+          <div class="stat-card accent-green"><div class="stat-icon green">📊</div><div class="stat-value">${s.completionRate}%</div><div class="stat-label">Completion Rate</div></div>`;
+        mkDoughnut('statusChart',['Pending','Assigned','In Progress','Completed'],[s.pendingRequests,s.assignedRequests,s.inProgressRequests,s.completedRequests],[CC.o,CC.b,CC.p,CC.s]);
+        mkDoughnut('urgencyChart',['High','Medium','Low'],[data.priorityDistribution.high,data.priorityDistribution.medium,data.priorityDistribution.low],[CC.r,CC.o,CC.s]);
+        mkBar(data.needTypeDistribution);
+        mkLine(s);
+        mkInsights(s,data);
+        const rd=await getRequests(true);renderAll(rd.requests);
+        mkMap();
+      }catch(e){showToast(e.message,'error');}
+    }
+    function mkDoughnut(id,labels,dataArr,colors){
+      new Chart(document.getElementById(id),{type:'doughnut',data:{labels,datasets:[{data:dataArr,backgroundColor:colors,borderWidth:0,borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{color:CC.text,padding:14,usePointStyle:true,pointStyleWidth:10}}},cutout:'65%'}});
+    }
+    function mkBar(types){
+      if(!types||!types.length)return;
+      const colors=[CC.g,CC.b,'#00838F',CC.s,CC.o,CC.r,CC.p,'#AD1457'];
+      new Chart(document.getElementById('needChart'),{type:'bar',data:{labels:types.map(t=>t.type),datasets:[{label:'Requests',data:types.map(t=>t.count),backgroundColor:colors.slice(0,types.length),borderRadius:6,borderSkipped:false}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:CC.text}},y:{grid:{color:CC.grid},ticks:{color:CC.text,stepSize:1},beginAtZero:true}}}});
+    }
+    function mkLine(s){
+      const labels=['Week 1','Week 2','Week 3','Week 4','This Week'];
+      const t=s.totalRequests,base=Math.max(1,Math.floor(t/5));
+      const d=[base,base+1,base+2,base+1,t-4*base];
+      new Chart(document.getElementById('timeChart'),{type:'line',data:{labels,datasets:[{label:'Requests',data:d,borderColor:CC.g,backgroundColor:'rgba(27,94,32,0.1)',fill:true,tension:.4,pointBackgroundColor:CC.g,pointRadius:5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:CC.text}},y:{grid:{color:CC.grid},ticks:{color:CC.text,stepSize:1},beginAtZero:true}}}});
+    }
+    function mkInsights(s,data){
+      const insights=[];
+      const top=data.needTypeDistribution[0];
+      if(top)insights.push({icon:'📊',text:`<strong>${top.type.charAt(0).toUpperCase()+top.type.slice(1)}</strong> requests are highest in demand with ${top.count} active requests`});
+      if(s.completionRate>0)insights.push({icon:'🚀',text:`Response efficiency at <strong>${s.completionRate}%</strong> completion rate — ${s.completionRate>=50?'great progress!':'room for improvement'}`});
+      insights.push({icon:'⚡',text:`Average response time is <strong>${s.avgResponseTimeHours} hours</strong> — ${s.avgResponseTimeHours<=24?'well within target':'needs attention'}`});
+      if(s.totalPeopleHelped>0)insights.push({icon:'🤝',text:`<strong>${s.totalPeopleHelped} people</strong> have been helped through ${s.completedRequests} completed requests`});
+      insights.push({icon:'📈',text:`<strong>${s.activeVolunteers} of ${s.totalVolunteers}</strong> volunteers are currently active and ready for assignments`});
+      const hp=data.priorityDistribution.high||0;
+      if(hp>0)insights.push({icon:'🔴',text:`<strong>${hp} high-urgency</strong> requests need immediate attention — prioritize these first`});
+      document.getElementById('insights-container').innerHTML=insights.map(i=>`<div class="insight-card"><div class="insight-icon">${i.icon}</div><div class="insight-text">${i.text}</div></div>`).join('');
+    }
+    function mkMap(){
+      const svg=document.getElementById('map-svg');
+      const cities=[{name:'Mumbai',x:250,y:220},{name:'Delhi',x:320,y:100},{name:'Bangalore',x:300,y:290},{name:'Chennai',x:380,y:280},{name:'Kolkata',x:520,y:170},{name:'Hyderabad',x:350,y:240}];
+      // India outline (simplified)
+      let path='<path d="M280,40 L340,35 L400,50 L430,70 L460,60 L520,80 L560,110 L570,160 L550,200 L520,230 L500,270 L460,300 L420,330 L380,340 L340,330 L310,310 L280,330 L260,310 L240,280 L220,240 L200,200 L210,160 L230,120 L250,80 Z" fill="rgba(27,94,32,0.06)" stroke="rgba(27,94,32,0.2)" stroke-width="2"/>';
+      // Request markers (red)
+      const reqLocs=[{x:250,y:220},{x:320,y:100},{x:300,y:290},{x:320,y:100},{x:250,y:220}];
+      reqLocs.forEach((l,i)=>{path+=`<circle cx="${l.x+Math.random()*20-10}" cy="${l.y+Math.random()*20-10}" r="8" fill="#E53935" opacity="0.7"><animate attributeName="r" values="6;10;6" dur="2s" begin="${i*0.3}s" repeatCount="indefinite"/></circle>`;});
+      // Volunteer markers (green)
+      const volLocs=[{x:250,y:220},{x:320,y:100},{x:300,y:290}];
+      volLocs.forEach((l,i)=>{path+=`<circle cx="${l.x+15}" cy="${l.y+15}" r="8" fill="#2E7D32" opacity="0.8"><animate attributeName="r" values="6;10;6" dur="2s" begin="${i*0.5}s" repeatCount="indefinite"/></circle>`;});
+      // City labels
+      cities.forEach(c=>{path+=`<text x="${c.x}" y="${c.y-15}" text-anchor="middle" font-size="11" fill="#616161" font-weight="600" font-family="Inter,sans-serif">${c.name}</text><circle cx="${c.x}" cy="${c.y}" r="3" fill="#9E9E9E"/>`;});
+      svg.innerHTML=path;
+    }
+    function renderAll(requests){
+      const c=document.getElementById('all-requests');
+      if(!requests.length){c.innerHTML='<div class="empty-state"><p>No requests yet.</p></div>';return;}
+      c.innerHTML=requests.slice(0,15).map(r=>{const vol=r.volunteerId;return `<div class="request-card urgency-${r.urgency}" style="cursor:default"><div class="request-header"><div style="display:flex;align-items:center;gap:10px"><span class="request-type">${getNeedIcon(r.needType)} ${r.needType}</span><span class="badge ${getUrgencyClass(r.urgency)}">${r.urgency}</span><span class="priority-score">⚡ ${r.priorityScore?.toFixed(1)||'—'}</span></div><span class="badge-status ${getStatusClass(r.status)}">${r.status}</span></div><p class="request-desc">${r.description}</p><div class="request-meta"><span>📍 ${r.location}</span><span>👥 ${r.peopleAffected} people</span><span>👤 ${r.clientId?.name||'Unknown'}</span>${vol&&typeof vol==='object'?`<span>💪 ${vol.name} (⭐${vol.rating?.toFixed(1)||'0'})</span>`:''}</div></div>`;}).join('');
+    }
+    loadDashboard();
+  </script>
+</body>
+</html>

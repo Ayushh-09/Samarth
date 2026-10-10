@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Client Dashboard — Samarth</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+
+<body>
+  <nav class="navbar" id="navbar"></nav>
+  <div class="page-container">
+    <div class="page-header">
+      <h1 class="page-title" id="welcome-title">Welcome back</h1>
+      <p class="page-subtitle">Submit requests, track progress, and connect with volunteers</p>
+    </div>
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('new-request')">➕ New Request</button>
+      <button class="tab-btn" onclick="switchTab('my-requests')">📋 My Requests</button>
+    </div>
+    <div class="tab-content active" id="tab-new-request">
+      <div class="card" style="max-width:700px;">
+        <h2 class="card-title" style="margin-bottom:24px;">Submit a Help Request</h2>
+        <form id="request-form" onsubmit="handleSubmitRequest(event)">
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Need Type</label>
+              <select class="form-control" id="req-type" required>
+                <option value="">Select type...</option>
+                <option value="food">🍲 Food</option>
+                <option value="medical">🏥 Medical</option>
+                <option value="education">📚 Education</option>
+                <option value="shelter">🏠 Shelter</option>
+                <option value="clothing">👕 Clothing</option>
+                <option value="disaster-relief">🆘 Disaster Relief</option>
+                <option value="mental-health">🧠 Mental Health</option>
+                <option value="other">📋 Other</option>
+              </select>
+            </div>
+            <div class="form-group"><label class="form-label">Urgency Level</label>
+              <select class="form-control" id="req-urgency" required>
+                <option value="">Select urgency...</option>
+                <option value="high">🔴 High</option>
+                <option value="medium">🟡 Medium</option>
+                <option value="low">🟢 Low</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group"><label class="form-label">Description</label>
+            <textarea class="form-control" id="req-desc" placeholder="Describe what help is needed..."
+              required></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Location</label>
+              <input type="text" class="form-control" id="req-location" placeholder="e.g., Mumbai" required>
+            </div>
+            <div class="form-group"><label class="form-label">People Affected</label>
+              <input type="number" class="form-control" id="req-people" placeholder="e.g., 50" min="1" required>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-lg" id="submit-btn">Submit Request</button>
+        </form>
+      </div>
+    </div>
+    <div class="tab-content" id="tab-my-requests">
+      <div id="requests-list">
+        <div class="spinner"></div>
+      </div>
+    </div>
+  </div>
+  <div class="modal-overlay" id="rating-modal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeRatingModal()">&times;</button>
+      <h3 class="modal-title">⭐ Rate Volunteer</h3>
+      <p style="color:var(--text-sec);margin-bottom:16px;">How was your experience?</p>
+      <div class="stars" id="rating-stars" style="justify-content:center;margin-bottom:24px;font-size:2rem;"></div>
+      <input type="hidden" id="rating-request-id">
+      <button class="btn btn-primary btn-lg" style="width:100%;" onclick="submitRating()">Submit Rating</button>
+    </div>
+  </div>
+  <div class="modal-overlay" id="timeline-modal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeTimelineModal()">&times;</button>
+      <h3 class="modal-title">📊 Request Progress</h3>
+      <div id="timeline-content"></div>
+    </div>
+  </div>
+  <div class="offline-banner" id="offline-banner">📡 Offline Mode Active — Showing cached data</div>
+  <script src="/js/api.js"></script>
+  <script>
+    if (!requireAuth('client')) { }
+    const user = getUser();
+    document.getElementById('navbar').innerHTML = buildNavbar('client');
+    document.getElementById('welcome-title').textContent = 'Welcome, ' + user.name;
+    document.getElementById('req-location').value = user.location || '';
+
+    function switchTab(t) {
+      document.querySelectorAll('.tab-btn').forEach((b, i) => b.classList.toggle('active', (t === 'new-request' ? 0 : 1) === i));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      document.getElementById('tab-' + t).classList.add('active');
+      if (t === 'my-requests') loadRequests();
+    }
+    async function handleSubmitRequest(e) {
+      e.preventDefault(); const btn = document.getElementById('submit-btn');
+      btn.disabled = true; btn.textContent = 'Submitting...';
+      try {
+        await createRequest({ needType: document.getElementById('req-type').value, description: document.getElementById('req-desc').value, location: document.getElementById('req-location').value, urgency: document.getElementById('req-urgency').value, peopleAffected: parseInt(document.getElementById('req-people').value) });
+        showToast('Request submitted successfully!', 'success');
+        document.getElementById('request-form').reset();
+        document.getElementById('req-location').value = user.location || '';
+      } catch (err) { showToast(err.message, 'error'); }
+      btn.disabled = false; btn.textContent = 'Submit Request';
+    }
+    async function loadRequests() {
+      try {
+        const data = await getRequests(); const c = document.getElementById('requests-list');
+        if (!data.requests.length) { c.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>No requests yet. Submit your first request!</p></div>'; return; }
+        c.innerHTML = data.requests.map(r => renderCard(r)).join('');
+      } catch (err) { showToast(err.message, 'error'); }
+    }
+    function renderCard(r) {
+      const p = getStatusProgress(r.status), vol = r.volunteerId, si = ['pending', 'assigned', 'in-progress', 'completed'],
+        icons = ['📝', '👤', '🔄', '✅'], labels = ['Requested', 'Assigned', 'In Progress', 'Completed'],
+        ci = si.indexOf(r.status);
+      const steps = si.map((s, i) => `<div class="step-item ${i < ci ? 'done' : ''} ${i === ci ? 'active' : ''}"><div class="step-circle">${icons[i]}</div><div class="step-label">${labels[i]}</div></div>`).join('');
+      return `<div class="request-card urgency-${r.urgency}">
+        <div class="request-header">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="request-type">${getNeedIcon(r.needType)} ${r.needType}</span>
+            <span class="badge ${getUrgencyClass(r.urgency)}">${r.urgency}</span>
+          </div>
+          <span class="badge-status ${getStatusClass(r.status)}">${r.status}</span>
+        </div>
+        <p class="request-desc">${r.description}</p>
+        <div class="request-meta">
+          <span>📍 ${r.location}</span><span>👥 ${r.peopleAffected} people</span>
+          <span>📅 ${formatDate(r.createdAt)}</span>
+          <span class="priority-score">⚡ ${r.priorityScore?.toFixed(1) || '—'}</span>
+        </div>
+        <div class="step-tracker">${steps}</div>
+        ${vol && typeof vol === 'object' ? `<div class="volunteer-info"><div class="volunteer-avatar">${vol.name?.charAt(0) || 'V'}</div><div class="volunteer-details"><div class="volunteer-name">${vol.name}</div><div class="volunteer-meta">📍 ${vol.location} · ⭐ ${vol.rating?.toFixed(1) || 'N/A'}</div></div></div>` : ''}
+        <div class="request-actions" style="margin-top:12px;">
+          <button class="btn btn-secondary btn-sm" onclick='showTimeline(${JSON.stringify(r.timeline)})'>📊 Timeline</button>
+          ${r.status === 'pending' ? `<button class="btn btn-primary btn-sm" onclick="handleAssign('${r._id}')">🔗 Find Volunteer</button>` : ''}
+          ${r.status === 'completed' && !r.rating ? `<button class="btn btn-warning btn-sm" onclick="openRatingModal('${r._id}')">⭐ Rate</button>` : ''}
+          ${r.rating ? `<span class="rating-display">⭐ ${r.rating}/5</span>` : ''}
+        </div>
+      </div>`;
+    }
+    async function handleAssign(id) { try { const d = await assignRequest(id); showToast(d.message, 'success'); loadRequests(); } catch (e) { showToast(e.message, 'error'); } }
+    let currentRating = 0;
+    function openRatingModal(id) { currentRating = 0; document.getElementById('rating-request-id').value = id; document.getElementById('rating-stars').innerHTML = [1, 2, 3, 4, 5].map(i => `<span class="star" onclick="setRating(${i})" onmouseover="previewRating(${i})" onmouseout="resetPreview()">★</span>`).join(''); document.getElementById('rating-modal').classList.add('active'); }
+    function closeRatingModal() { document.getElementById('rating-modal').classList.remove('active'); }
+    function setRating(n) { currentRating = n; updateStars(n); }
+    function previewRating(n) { updateStars(n); }
+    function resetPreview() { updateStars(currentRating); }
+    function updateStars(n) { document.querySelectorAll('#rating-stars .star').forEach((s, i) => s.classList.toggle('filled', i < n)); }
+    async function submitRating() { if (!currentRating) { showToast('Please select a rating', 'error'); return; } try { await rateVolunteer(document.getElementById('rating-request-id').value, currentRating); showToast('Rating submitted!', 'success'); closeRatingModal(); loadRequests(); } catch (e) { showToast(e.message, 'error'); } }
+    function showTimeline(tl) { document.getElementById('timeline-content').innerHTML = `<div class="timeline">${tl.map((t, i) => `<div class="timeline-item ${i === tl.length - 1 ? 'active' : 'completed'}"><div class="timeline-dot"></div><div class="timeline-title">${t.status.charAt(0).toUpperCase() + t.status.slice(1)}</div><div class="timeline-note">${t.note || ''}</div><div class="timeline-time">${formatDate(t.timestamp)}</div></div>`).join('')}</div>`; document.getElementById('timeline-modal').classList.add('active'); }
+    function closeTimelineModal() { document.getElementById('timeline-modal').classList.remove('active'); }
+  </script>
+</body>
+
+</html>

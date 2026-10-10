@@ -1,0 +1,19 @@
+{
+  "name": "smart-resource-allocation-backend",
+  "version": "1.0.0",
+  "description": "Backend for Samarth — connecting clients with volunteers for social impact",
+  "main": "server.js",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "cross-env NODE_ENV=development node server.js",
+    "start:prod": "cross-env NODE_ENV=production node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0"
+  }
+}
